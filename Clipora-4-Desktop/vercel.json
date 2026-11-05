@@ -3,10 +3,10 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "functions": {
-    "api/hosted.py": {
-      "maxDuration": 240,
-      "excludeFiles": "{browser-extension/**,tests/**,server/**,client/**,public/**,scripts/**}"
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://clipora-video-api.onrender.com/api/:path*"
     }
-  }
+  ]
 }

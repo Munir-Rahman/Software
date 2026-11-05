@@ -33,16 +33,19 @@ The website is at **http://127.0.0.1:5173** when started with `npm.cmd run dev`.
 
 **If port 3001 or 5173 is already in use**, close the previous Clipora version first. The extension is configured for the local API port **3001**.
 
-## 2 — Install the updated browser extension
+## 2 — Download and install the updated browser extension
 
-1. Open `chrome://extensions` in Chrome or `edge://extensions` in Edge.
-2. Enable **Developer mode**.
-3. **Remove or disable the old Clipora extension** (version 3) to avoid duplicate buttons.
-4. Click **Load unpacked** and choose exactly the `Clipora-4-Desktop/browser-extension` folder.
-5. Pin the **Clipora — One Click Media Downloader** extension to the toolbar.
-6. Click the extension and enter the **8-digit pairing code displayed in the Clipora terminal**.
-7. Paste a video, audio, image, or playlist URL and click **Check formats**.
-8. Choose MP4 quality or MP3 bitrate and click **Download to Chrome**. For playlists, select the individual videos.
+1. Visit **https://clipora-4-desktop.vercel.app/#extension** and click **Download extension ZIP** (or use the direct download URL **https://clipora-4-desktop.vercel.app/downloads/clipora-chrome-edge-extension-v4.zip**). Extract the ZIP into a folder on your computer.
+2. Open `chrome://extensions` in Chrome or `edge://extensions` in Edge.
+3. Enable **Developer mode**.
+4. **Remove or disable the old Clipora extension** (version 3) to avoid duplicate buttons.
+5. Click **Load unpacked** and choose exactly the extracted `Clipora-Extension` folder (containing `manifest.json`), or `Clipora-4-Desktop/browser-extension` if you are using the source repository.
+6. Pin the **Clipora — One Click Media Downloader** extension to the toolbar.
+7. Click the extension and enter the **8-digit pairing code displayed in the Clipora terminal**.
+8. Paste a video, audio, image, or playlist URL and click **Check formats**.
+9. Choose MP4 quality or MP3 bitrate and click **Download to Chrome**. For playlists, select the individual videos.
+
+Extensions from ZIP files require manual unpacked installation; Chrome will not silently install them. To distribute automatically through Chrome, publish through the official Chrome Web Store review process.
 
 The downloaded files appear in `chrome://downloads/` and normally in `%USERPROFILE%\Downloads\Clipora\Videos`, `Audio`, or `Images`, unless you changed Chrome's download directory. You can also use Chrome's **Ask where to save each file** setting.
 

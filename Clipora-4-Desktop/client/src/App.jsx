@@ -11,6 +11,7 @@ import {
 
 const PUBLIC_CONTACT_EMAIL = 'munirrahmanrahmani0@gmail.com';
 const PUBLIC_REPO = 'https://github.com/Munir-Rahman/Software/tree/main/Clipora-4-Desktop';
+const EXTENSION_DOWNLOAD_URL = '/downloads/clipora-chrome-edge-extension-v4.zip';
 const hostedPreview = import.meta.env.VITE_HOSTED_PREVIEW === '1';
 
 const platforms = [
@@ -381,9 +382,10 @@ function App() {
           <a href="#library" onClick={() => setMobileMenu(false)}>My downloads</a>
           <a href="#browser" onClick={() => setMobileMenu(false)}>Browser</a>
           <a href="#statuses" onClick={() => setMobileMenu(false)}>Status files</a>
+          <a href="#extension" onClick={() => setMobileMenu(false)}>Browser extension</a>
           <a href="#contact" onClick={() => setMobileMenu(false)}>Contact</a>
         </nav>
-        {auth.required ? <button className="header-action logout-button" onClick={logOut}><LockKeyhole size={15}/> Sign out</button> : <a className="header-action" href="#downloader">Start downloading <ArrowRight size={16} /></a>}
+        {auth.required ? <button className="header-action logout-button" onClick={logOut}><LockKeyhole size={15}/> Sign out</button> : <a className="header-action" href={EXTENSION_DOWNLOAD_URL} download="clipora-chrome-edge-extension-v4.zip"><Download size={16} /> Get extension</a>}
         <button type="button" className="mobile-toggle" aria-label={mobileMenu ? 'Close menu' : 'Open menu'} onClick={() => setMobileMenu(!mobileMenu)}>
           {mobileMenu ? <CloseIcon /> : <Menu />}
         </button>
@@ -395,6 +397,7 @@ function App() {
           <div className="hero-eyebrow"><span className="eyebrow-star"><Sparkles size={14} fill="currentColor" /></span> ONE LINK. ENDLESS POSSIBILITIES. <span className="eyebrow-line" /></div>
           <h1 id="hero-title">Your favorite videos.<br /><span>Ready when you are.</span></h1>
           <p className="hero-subtitle">An easier way to save videos you love. Paste a link, pick your quality, and let Clipora handle the rest.</p>
+          <div className="hero-cta-row"><a className="extension-primary-button" href={EXTENSION_DOWNLOAD_URL} download="clipora-chrome-edge-extension-v4.zip"><Download size={19}/> Download browser extension <span className="extension-button-tag">Free</span></a><a className="extension-secondary-button" href="#extension">How to install <ArrowRight size={16}/></a></div>
           <div className="hero-stats"><span><CheckCircle2 size={15} /> Simple to use</span><i /><span><CheckCircle2 size={15} /> Quality options</span><i /><span><CheckCircle2 size={15} /> Optional browser extension</span></div>
           <div className="hero-orb hero-orb-one" aria-hidden="true" /><div className="hero-orb hero-orb-two" aria-hidden="true" />
         </section>
@@ -468,6 +471,26 @@ function App() {
           <div className="below-tool-caption"><ShieldCheck size={15} /> Download only videos you own, are licensed to use, or have permission to save. <span>Services may restrict access.</span></div>
         </section>
 
+        <section className="extension-section container" id="extension" aria-labelledby="extension-heading">
+          <div className="extension-card">
+            <div className="extension-copy">
+              <span className="section-overline">YOUR BROWSER, YOUR DOWNLOADER</span>
+              <h2 id="extension-heading">Save media without leaving <span>your browser.</span></h2>
+              <p>Get the Clipora Chrome &amp; Edge extension to paste links, choose available video quality or MP3 bitrate, and show buttons on supported images and videos. Files appear in Chrome Downloads.</p>
+              <div className="extension-actions"><a className="extension-primary-button" href={EXTENSION_DOWNLOAD_URL} download="clipora-chrome-edge-extension-v4.zip"><Download size={19}/> Download extension ZIP</a><a className="extension-source-link" href={PUBLIC_REPO + '/browser-extension'} target="_blank" rel="noopener noreferrer">View source <ExternalLink size={15}/></a></div>
+              <small>Version 4.0 · Chrome / Microsoft Edge desktop · Free to install · Requires manual approval</small>
+            </div>
+            <div className="extension-install">
+              <h3><MonitorDown size={20}/> Install in 3 steps</h3>
+              <ol>
+                <li><span>1</span><p><strong>Download &amp; extract</strong> Unzip the file on your computer.</p></li>
+                <li><span>2</span><p><strong>Open extensions</strong> Visit <code>chrome://extensions</code> or <code>edge://extensions</code>, enable Developer mode, then choose “Load unpacked”.</p></li>
+                <li><span>3</span><p><strong>Choose folder &amp; pair</strong> Select <code>Clipora-Extension</code>. Start Clipora's local engine and enter its pairing code for social-media downloads.</p></li>
+              </ol>
+              <p className="extension-install-note"><Info size={15}/> Chrome does not install extensions automatically from websites. Some direct files download without the engine; social-media extraction needs the Clipora desktop server.</p>
+            </div>
+          </div>
+        </section>
         <section className="workspace-section container" id="library">
           <div className="workspace-heading"><div><span className="section-overline">YOUR FILES</span><h2><FolderOpen size={30}/> Download library</h2><p>Completed files remain available until server cleanup; grouped by website and collection.</p></div><span className="workspace-count">{library.filter(j=>j.status==='ready').length} ready</span></div>
           <div className="workspace-panel"><div className="library-filters"><div className="library-search"><Search size={17}/><input placeholder="Search title, source, or collection..." value={librarySearch} onChange={e=>setLibrarySearch(e.target.value)}/></div><select aria-label="Filter status" value={libraryStatus} onChange={e=>setLibraryStatus(e.target.value)}><option value="all">All statuses</option><option value="ready">Ready</option><option value="downloading">Downloading</option><option value="queued">Queued</option><option value="error">Failed</option></select></div>
@@ -476,7 +499,7 @@ function App() {
         <section className="workspace-section container" id="browser">
           <div className="workspace-heading"><div><span className="section-overline">DISCOVER MEDIA</span><h2><Globe2 size={30}/> Media browser</h2><p>Open public sites and send supported video links to Clipora. An optional extension adds image/video buttons on pages you visit.</p></div></div>
           <div className="workspace-panel"><form className="google-search-form" action="https://www.google.com/search" target="_blank" rel="noopener noreferrer" method="get"><Search size={18}/><input type="search" placeholder="Search Google Videos…" name="q" value={googleQuery} onChange={e=>setGoogleQuery(e.target.value)}/><input type="hidden" name="tbm" value="vid"/><button type="submit">Search videos</button></form><form className="browser-bar" onSubmit={openBrowser}><Globe2 size={18}/><input type="url" aria-label="Site URL" value={browserAddress} onChange={e=>setBrowserAddress(e.target.value)} placeholder="https://example.com"/><button type="submit">Open preview</button><a rel="noopener noreferrer" target="_blank" href={browserAddress.startsWith('https://') ? browserAddress : 'https://www.google.com'} title="Open in your browser"><ExternalLink size={17}/></a></form>
-          <div className="browser-hint"><Info size={16}/><span>Some websites refuse iframe embedding. Clipora cannot read another site's page content from React. For media buttons, install the optional Chrome/Edge extension from the <code>browser-extension</code> folder.</span></div>
+          <div className="browser-hint"><Info size={16}/><span>Some websites refuse iframe embedding. Clipora cannot read another site's page content from React. <a className="browser-extension-link" href={EXTENSION_DOWNLOAD_URL} download="clipora-chrome-edge-extension-v4.zip">Download the Chrome/Edge extension</a> to add download buttons to supported public media.</span></div>
           {browserPage?<div className="browser-frame"><iframe title="Website preview" src={browserPage} sandbox="allow-forms allow-scripts allow-same-origin allow-popups" referrerPolicy="no-referrer"/><div className="browser-frame-footer"><span>Preview blocked? Use the external-tab button instead.</span><button onClick={useBrowserUrl} type="button"><Download size={16}/> Analyze current URL</button></div></div>:<div className="browser-placeholder"><PanelTopOpen size={38}/><h3>Explore supported public websites</h3><p>Paste a site address and open a preview or browse normally with the extension.</p></div>}</div>
         </section>
         <section className="workspace-section container" id="statuses">

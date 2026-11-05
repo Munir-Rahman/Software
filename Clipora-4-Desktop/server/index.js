@@ -10,6 +10,7 @@ import { config, ROOT, validateStartup } from './lib/config.js';
 import { cookieValue, verifySession, verifyPassword, makeSession, setSessionCookie, clearSessionCookie } from './lib/auth.js';
 import { visitorOwner, canAccessJob } from './lib/visitor.js';
 import { runBinary } from './lib/process.js';
+import { youtubeArgs, withYoutubeFallback } from './lib/youtube-fallback.js';
 import { metadataForClient, friendlyError } from './lib/metadata.js';
 import { downloadDirect, validateDirectUrl } from './lib/direct.js';
 import { findPlatform, userError, PLATFORMS, playlistForClient } from './validation.js';
@@ -239,16 +240,24 @@ async function inspect(url, platform) {
       resolutions: link.mediaKind === 'video' ? [0] : [], sourceUrl: url, sourceFormat: link.ext.slice(1) };
   }
   const isPlaylist = platform.key === 'youtube' && findPlatform(url).playlist;
-  const result = await runBinary(config.ytdlp,
-    [...downloaderArgs().filter(arg => !(isPlaylist && arg === '--no-playlist')),
-      ...(isPlaylist ? ['--yes-playlist', '--flat-playlist', '--playlist-end', String(config.maxPlaylistItems)] : []),
-      '--dump-single-json', '--skip-download', '--', url],
-    { timeoutMs: config.inspectTimeout, outputLimit: 24 * 1024 * 1024 });
+  const { result, profile } = await withYoutubeFallback({
+    platform: platform.key, playlist: isPlaylist,
+    run: profile => runBinary(config.ytdlp,
+      [...downloaderArgs().filter(arg => !(isPlaylist && arg === '--no-playlist')),
+        ...youtubeArgs(profile),
+        ...(isPlaylist ? ['--yes-playlist', '--flat-playlist', '--playlist-end', String(config.maxPlaylistItems)] : []),
+        '--dump-single-json', '--skip-download', '--', url],
+      { timeoutMs: config.inspectTimeout, outputLimit: 24 * 1024 * 1024 }),
+  });
   let meta;
   try { meta = JSON.parse(result.output); }
   catch { throw userError('The provider returned invalid metadata.', 502); }
   if (isPlaylist) return playlistForClient(meta, platform, url, config.maxPlaylistItems);
-  return { kind: 'single', ...metadataForClient(meta, platform, url, config.maxDuration) };
+  const response = { kind: 'single', ...metadataForClient(meta, platform, url, config.maxDuration) };
+  // Preserve the client that worked for the *download* but never serialize it
+  // into browser-controlled job inputs.
+  Object.defineProperty(response, 'youtubeProfile', { value: profile, enumerable: false });
+  return response;
 }
 app.post('/api/inspect', requireXHR, inspectLimiter, async (req, res, next) => {
   if (inspections >= config.maxInspects) return next(userError('The server is busy inspecting other links. Try again.', 429));
@@ -405,7 +414,8 @@ async function processDownload(job) {
       finally { diskCheckRunning = false; }
     }, 2500);
     const args = [
-      ...downloaderArgs(), '--newline', '--max-filesize', `${config.maxDownloadMB}M`,
+      ...downloaderArgs(), ...youtubeArgs(platform.key === 'youtube' ? metadata.youtubeProfile : 'default'),
+      '--newline', '--max-filesize', `${config.maxDownloadMB}M`,
       '--match-filter', `duration <= ${config.maxDuration} & !is_live`,
       '--output', path.join(folder, 'video.%(ext)s'),
       '--progress-template', 'download:CLIPORA_PROGRESS|%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s',

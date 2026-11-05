@@ -129,6 +129,13 @@ def metadata_response(url, platform, info):
     thumb = info.get('thumbnail', '')
     if not isinstance(thumb, str) or not thumb.startswith('https://'):
         thumb = None
+    ffmpeg_available = bool(shutil.which('ffmpeg'))
+    progressive = {int(f['height']) for f in fmt if isinstance(f, dict)
+                   and isinstance(f.get('height'), (int, float)) and 144 <= f['height'] <= MAX_RESOLUTION
+                   and f.get('vcodec') not in (None, 'none')
+                   and f.get('acodec') not in (None, 'none') and f.get('ext') == 'mp4'}
+    if not ffmpeg_available:
+        heights = progressive
     return {
         'kind': 'single', 'platform': platform,
         'title': str(info.get('title') or 'Untitled').strip()[:180],
@@ -139,6 +146,8 @@ def metadata_response(url, platform, info):
         'resolutions': sorted(heights, reverse=True),
         'sourceUrl': url, 'sourceFormat': info.get('ext'),
         'hostedLimits': {'maxMinutes': 10, 'maxMB': 60, 'maxHeight': MAX_RESOLUTION},
+        'hostedAudioFormat': 'mp3' if ffmpeg_available else 'm4a',
+        'hostedCanConvert': ffmpeg_available,
     }
 
 
@@ -149,8 +158,8 @@ def sanitize_filename(name):
 
 
 def download_one(url, file_type, height, bitrate):
-    if file_type not in ('mp4', 'mp3'):
-        raise ClientError('Choose MP4 video or MP3 audio.')
+    if file_type not in ('mp4', 'mp3', 'm4a'):
+        raise ClientError('Choose MP4 video, MP3 audio, or original M4A audio.')
     try:
         height = int(height)
         bitrate = int(bitrate)
@@ -177,23 +186,24 @@ def download_one(url, file_type, height, bitrate):
         'progress_hooks': [limit_progress],
         'nopart': True,
     })
-    try:
-        import imageio_ffmpeg
-        opts['ffmpeg_location'] = imageio_ffmpeg.get_ffmpeg_exe()
-    except Exception:
-        if file_type == 'mp3':
-            shutil.rmtree(workdir, ignore_errors=True)
-            raise ClientError('MP3 conversion is temporarily unavailable on the hosted server.', 503)
+    ffmpeg_location = shutil.which('ffmpeg')
+    if ffmpeg_location:
+        opts['ffmpeg_location'] = ffmpeg_location
+    elif file_type == 'mp3':
+        shutil.rmtree(workdir, ignore_errors=True)
+        raise ClientError('Hosted audio is available as original M4A rather than converted MP3. Use Clipora Desktop for MP3.', 422)
     if file_type == 'mp3':
         opts['format'] = 'bestaudio/best'
         opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': str(bitrate)}]
-    else:
-        # Prefer MP4 video + M4A audio to avoid codec incompatibilities.
+    elif file_type == 'm4a':
+        opts['format'] = 'bestaudio[ext=m4a]'
+    elif ffmpeg_location:
         opts['format'] = (f'bestvideo[ext=mp4][height<={height}]+bestaudio[ext=m4a]'
-                          f'/best[ext=mp4][height<={height}]'
-                          f'/bestvideo[height<={height}]+bestaudio/best[height<={height}]')
+                          f'/best[ext=mp4][height<={height}]')
         opts['merge_output_format'] = 'mp4'
-        # Only merge/rewrap MP4-compatible streams; avoid costly re-encoding in a function.
+    else:
+        # No FFmpeg in Vercel: progressive MP4 already contains video and audio.
+        opts['format'] = f'best[ext=mp4][height<={height}][vcodec!=none][acodec!=none]'
     try:
         with YoutubeDL(opts) as ydl:
             ydl.download([url])
@@ -250,7 +260,7 @@ class handler(BaseHTTPRequestHandler):
                 query.get('height', ['720'])[0], query.get('bitrate', ['192'])[0])
             try:
                 self.send_response(200)
-                self.send_header('Content-Type', 'audio/mpeg' if file_type == 'mp3' else 'video/mp4')
+                self.send_header('Content-Type', 'audio/mpeg' if file_type == 'mp3' else 'audio/mp4' if file_type == 'm4a' else 'video/mp4')
                 self.send_header('Content-Length', str(file_path.stat().st_size))
                 self.send_header('Content-Disposition', "attachment; filename*=UTF-8''" + quote(output_name))
                 self.send_header('X-Content-Type-Options', 'nosniff')

@@ -58,6 +58,10 @@ async function downloadFile(url, { title, kind, saveAs = false } = {}) {
   const fname = `Clipora/${typeFolder(info.kind)}/${safeFileName(title || info.name, info.ext)}`;
   const id = await chrome.downloads.download({ url: safe, filename: fname, conflictAction: 'uniquify', saveAs });
   if (typeof id !== 'number') throw new Error('Chrome did not start the download.');
+  const stored = await chrome.storage.local.get('cliporaJobs');
+  const jobs = Array.isArray(stored.cliporaJobs) ? stored.cliporaJobs : [];
+  await chrome.storage.local.set({ cliporaJobs: [{ id: `direct:${id}`, chromeDownloadId: id,
+    title: title || info.name, createdAt: Date.now(), type: info.kind }, ...jobs].slice(0, 40) });
   return { downloadId: id, filename: fname, mode: 'direct' };
 }
 async function trackJob(item, downloadId) {
@@ -76,8 +80,20 @@ async function receiveJob(download) {
   await trackJob(download, downloadId);
   return { downloadId, jobId: download.job.id, filename: fname, mode: 'browser' };
 }
+async function inspectMedia(rawUrl) {
+  const url = safeRemoteUrl(rawUrl);
+  if (MEDIA_EXTENSIONS.test(url)) {
+    const file = directInfo(url);
+    return { kind: 'single', platform: 'direct', sourceUrl: url, title: file.name,
+      mediaKind: file.kind, resolutions: [], duration: null, thumbnail: null, creator: '', viewCount: null };
+  }
+  return bridge('/inspect', { url });
+}
 async function start(payload) {
   const url = safeRemoteUrl(payload.url);
+  if (payload.type === 'original' && MEDIA_EXTENSIONS.test(url)) {
+    return downloadFile(url, { title: payload.title, kind: payload.kind });
+  }
   const data = await bridge('/download', { ...payload, url });
   if (data.mode === 'direct') return downloadFile(data.url, { title: payload.title, kind: payload.kind });
   return receiveJob(data);
@@ -141,7 +157,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || typeof message.action !== 'string') return false;
   const tasks = {
     pair: () => pair(message.code),
-    inspect: () => bridge('/inspect', { url: safeRemoteUrl(message.url) }),
+    inspect: () => inspectMedia(message.url),
     start: () => start(message.payload),
     quick: () => quickDownload(message.url, message.kind || ''),
     batch: () => startBatch(message.payload),
@@ -156,7 +172,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     scan: async () => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab?.id || !/^https?:\/\//.test(tab.url || '')) throw new Error('Open a normal website first.');
-      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['media-buttons.js'] });
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['media-target.js', 'media-buttons.js'] });
       return { scanned: true };
     },
   };
@@ -170,8 +186,12 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({ id: 'clipora-media', title: 'Download with Clipora', contexts: ['image', 'video', 'audio', 'link', 'page'] });
 });
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  const url = info.srcUrl || info.linkUrl || info.pageUrl || tab?.url;
+  const url = info.linkUrl || (info.mediaType === 'image' ? info.srcUrl : null)
+    || info.pageUrl || tab?.url;
   if (!url) return;
-  const kind = ['image', 'video', 'audio'].includes(info.mediaType) ? info.mediaType : 'page';
-  void quickDownload(url, kind).catch(e => { console.warn('Clipora download:', e.message); });
+  // Context menu must open the chooser instead of silently saving WebP artwork.
+  chrome.windows.create({ url: chrome.runtime.getURL('popup.html?url=' + encodeURIComponent(url)),
+    type: 'popup', width: 460, height: 720 }, () => {
+    if (chrome.runtime.lastError) console.warn(chrome.runtime.lastError.message);
+  });
 });

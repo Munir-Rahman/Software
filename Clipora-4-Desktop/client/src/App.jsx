@@ -16,6 +16,32 @@ const DESKTOP_SOURCE_URL = '/downloads/clipora-desktop-windows-source-v4.zip';
 const MOBILE_SOURCE_URL = '/downloads/clipora-mobile-android-ios-source.zip';
 const hostedPreview = import.meta.env.VITE_HOSTED_PREVIEW === '1';
 
+const PAGE_BRIDGE_TIMEOUT = 8500;
+function extensionRequest(action, payload = {}) {
+  return new Promise((resolve, reject) => {
+    // This site bridge exists only when the user's Clipora Chrome/Edge extension
+    // is installed. The paired local engine remains responsible for extraction.
+    const id = `clipora-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let finished = false;
+    const finish = (error, data) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      window.removeEventListener('message', onMessage);
+      if (error) reject(error); else resolve(data);
+    };
+    const onMessage = event => {
+      if (event.source !== window || event.origin !== window.location.origin ||
+          event.data?.channel !== 'clipora-extension-reply' || event.data.id !== id) return;
+      finish(event.data.ok ? null : new Error(event.data.error || 'Clipora extension failed.'), event.data.data);
+    };
+    const timer = setTimeout(() => finish(new Error('Clipora extension not connected. Install/reload the Chrome/Edge extension, start Clipora on Windows, and pair it with the code shown in your terminal.')), PAGE_BRIDGE_TIMEOUT);
+    window.addEventListener('message', onMessage);
+    window.postMessage({ channel: 'clipora-page-request', id, action, payload }, window.location.origin);
+  });
+}
+
+
 const platforms = [
   { key: 'auto', label: 'Auto detect', short: 'Auto', domain: '', tone: '#60e7bd' },
   { key: 'youtube', label: 'YouTube', short: 'YouTube', domain: 'youtube.com', tone: '#ff353b' },
@@ -152,6 +178,16 @@ function App() {
   const [loggingIn, setLoggingIn] = useState(false);
   const [authError, setAuthError] = useState('');
   const [diagnostics, setDiagnostics] = useState(null);
+  const [extensionConnected, setExtensionConnected] = useState(false);
+  useEffect(() => {
+    if (!hostedPreview) return;
+    const onReady = event => {
+      if (event.source === window && event.origin === window.location.origin && event.data?.channel === 'clipora-extension-ready') setExtensionConnected(true);
+    };
+    window.addEventListener('message', onReady);
+    extensionRequest('status').then(() => setExtensionConnected(true)).catch(() => {});
+    return () => window.removeEventListener('message', onReady);
+  }, []);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const incoming = params.get('url');
@@ -193,16 +229,22 @@ function App() {
   };
   const startBatch = async () => {
     if (!video?.items?.length || !playlistSelected.length) return;
-    if (hostedPreview) { setError('The Vercel site is a public preview. Install and start the Clipora desktop engine to download supported social videos.'); return; }
     setBatchBusy(true); setError('');
     try {
       const items = video.items.filter(item => playlistSelected.includes(item.id)).map(item => ({
         url: item.url, platform: 'youtube', type: playlistType, height: playlistHeight,
         audioBitrate, title: item.title, collection: video.title,
       }));
-      const response = await apiRequest('/download/batch', { method: 'POST', body: JSON.stringify({ items }) });
-      setNotice(`${response.jobs.length} videos queued. Open Download library to see progress.`);
-      window.location.hash = '#library';
+      if (hostedPreview) {
+        const response = await extensionRequest('batch', { items: items.map(item => ({url: item.url, title: item.title})),
+          type: playlistType, height: playlistHeight, bitrate: audioBitrate, collection: video.title });
+        const count = response.downloads.filter(x => !x.error).length;
+        setNotice(`${count} download(s) added to Chrome Downloads. Press Ctrl+J for progress.`);
+      } else {
+        const response = await apiRequest('/download/batch', { method: 'POST', body: JSON.stringify({ items }) });
+        setNotice(`${response.jobs.length} videos queued. Open Download library to see progress.`);
+        window.location.hash = '#library';
+      }
     } catch(e) { setError(e.message); } finally { setBatchBusy(false); }
   };
   const requestSeq = useRef(0);
@@ -236,8 +278,16 @@ function App() {
   const cancelDownload = async () => {
     if (!jobId) return;
     try {
-      const response = await apiRequest(`/jobs/${jobId}/cancel`, { method: 'POST' });
-      setJob(response);
+      if (hostedPreview) {
+        const state = await extensionRequest('status');
+        const item = state.items.find(entry => entry.id === jobId);
+        if (!item) throw new Error('Download not found in Chrome.');
+        await extensionRequest('cancel', { chromeDownloadId: item.chromeDownloadId, jobId });
+        setJob(j => ({ ...j, status: 'cancelled' }));
+      } else {
+        const response = await apiRequest(`/jobs/${jobId}/cancel`, { method: 'POST' });
+        setJob(response);
+      }
     } catch (e) { setError(e.message); }
   };
 
@@ -247,7 +297,19 @@ function App() {
     let interval;
     const poll = async () => {
       try {
-        const next = await apiRequest(`/jobs/${jobId}`);
+        let next;
+        if (hostedPreview) {
+          const state = await extensionRequest('status');
+          const item = state.items.find(entry => entry.id === jobId);
+          if (!item) return;
+          next = { id: jobId, status: item.state === 'complete' ? 'ready'
+            : item.state === 'interrupted' ? 'error' : item.jobStatus || 'downloading',
+            progress: Number(item.jobProgress ?? (item.total > 0 ? item.received / item.total * 100 : 0)),
+            sizeBytes: item.total > 0 ? item.total : null,
+            speed: item.jobSpeed, eta: item.jobEta, error: item.error || null };
+        } else {
+          next = await apiRequest(`/jobs/${jobId}`);
+        }
         if (cancelled) return;
         setJob(next);
         if (['ready', 'error', 'cancelled'].includes(next.status)) {
@@ -269,7 +331,7 @@ function App() {
   // Saving through an ordinary same-origin attachment link makes Chrome own the file,
   // so it appears in chrome://downloads rather than being retained in JS memory.
   useEffect(() => {
-    if (!autoSave || job?.status !== 'ready' || !job.downloadUrl || nativeSavedJobs.current.has(job.id)) return;
+    if (hostedPreview || !autoSave || job?.status !== 'ready' || !job.downloadUrl || nativeSavedJobs.current.has(job.id)) return;
     nativeSavedJobs.current.add(job.id);
     const link = document.createElement('a');
     link.href = job.downloadUrl;
@@ -312,7 +374,6 @@ function App() {
     e?.preventDefault();
     const current = url.trim();
     if (!current) return setError('Paste a video link to get started.');
-    if (hostedPreview) return setError('Online preview only: video extraction runs on your computer with the Clipora desktop engine. Download the source from GitHub, run SETUP-CLIPORA.cmd and START-CLIPORA.cmd, then open localhost:5173.');
     const seq = ++requestSeq.current;
     setInspecting(true);
     setError('');
@@ -321,7 +382,9 @@ function App() {
     setJob(null);
     setJobId(null);
     try {
-      const data = await apiRequest('/inspect', { method: 'POST', body: JSON.stringify({ url: current, platform }) });
+      const data = hostedPreview ? await extensionRequest('inspect', { url: current })
+        : await apiRequest('/inspect', { method: 'POST', body: JSON.stringify({ url: current, platform }) });
+      if (hostedPreview) setExtensionConnected(true);
       if (seq !== requestSeq.current) return;
       setVideo(data);
       if (data.kind === 'playlist') {
@@ -339,15 +402,25 @@ function App() {
   };
   const download = async () => {
     if (!video || jobId) return;
-    if (hostedPreview) return setError('Download requires your running local Clipora desktop engine.');
     setError('');
     try {
-      const started = await apiRequest('/download', {
-        method: 'POST',
-        body: JSON.stringify({ url: video.sourceUrl, platform: video.platform, height: selectedHeight, type, audioBitrate, title: video.title, collection }),
-      });
-      setJobId(started.id);
-      setJob({ id: started.id, status: started.status, progress: 0 });
+      if (hostedPreview) {
+        const started = await extensionRequest('start', {
+          url: video.sourceUrl || url.trim(), platform: video.platform, height: selectedHeight || 720,
+          type, audioBitrate, title: video.title, kind: video.mediaKind, collection,
+        });
+        const id = started.jobId || `direct:${started.downloadId}`;
+        setJobId(id);
+        setJob({ id, status: 'downloading', progress: 0 });
+        setNotice('Download started in Chrome! Press Ctrl+J to see the file and its progress.');
+      } else {
+        const started = await apiRequest('/download', {
+          method: 'POST',
+          body: JSON.stringify({ url: video.sourceUrl, platform: video.platform, height: selectedHeight, type, audioBitrate, title: video.title, collection }),
+        });
+        setJobId(started.id);
+        setJob({ id: started.id, status: started.status, progress: 0 });
+      }
     } catch (e) { setError(e.message); }
   };
   const reset = () => {
@@ -395,7 +468,7 @@ function App() {
       </header>
 
       <main>
-        {hostedPreview && <aside className="container hosted-banner" role="status"><Info size={21}/><div><strong>Welcome to Clipora · Choose an app to begin</strong><p>This public website provides the download packages and documentation. Video extraction requires the local Windows engine; the downloadable Android/iOS code is a development preview, not a signed app.</p></div><a href="#downloads">See downloads <ArrowRight size={15}/></a></aside>}
+        {hostedPreview && <aside className="container hosted-banner" role="status"><Info size={21}/><div><strong>The paste-link downloader is back.</strong><p>Install and pair the Clipora browser extension to analyze social-media links here. Local Windows processing is required; Vercel does not run yt-dlp. Mobile packages remain developer previews.</p></div><a href="#downloader">Paste a link <ArrowRight size={15}/></a></aside>}
         <section className="hero container" aria-labelledby="hero-title">
           <div className="hero-eyebrow"><span className="eyebrow-star"><Sparkles size={14} fill="currentColor" /></span> ONE LINK. ENDLESS POSSIBILITIES. <span className="eyebrow-line" /></div>
           <h1 id="hero-title">Your favorite videos.<br /><span>Ready when you are.</span></h1>
@@ -406,8 +479,7 @@ function App() {
         </section>
 
         <section className="downloader-wrap container" id="downloader" aria-label="Video download tool">
-          {hostedPreview ? <div className="hosted-start-card"><span className="hosted-label"><MonitorDown size={16}/> CLIPORA DESKTOP ENGINE</span><h2>Download on your computer, not on a remote server.</h2><p>Clipora’s website is hosted here, but the video extractor runs locally on Windows. Download the desktop source package, install the bundled setup scripts, and use the browser extension to save supported videos, audio, and images into Chrome Downloads.</p><div className="hosted-action-row"><a className="hosted-install-primary" href={DESKTOP_SOURCE_URL} download="clipora-desktop-windows-source-v4.zip"><Download size={18}/> Windows package (ZIP)</a><a className="hosted-install-secondary" href="#downloads">Android, iPhone &amp; extensions <ArrowRight size={16}/></a></div><div className="hosted-micro-note"><Info size={14}/> Windows package is source code with setup scripts, not a compiled .exe. Online video downloads still need an Internet connection.</div></div> : <>
-          <div className="download-card" ref={formRef}>
+                    <div className="download-card" ref={formRef}>
             <div className="downloader-topline"><div><span className="live-dot" /> VIDEO DOWNLOADER</div><span className="topline-right"><ShieldCheck size={15} /> Your link, your choice</span></div>
             <div className="downloader-content">
               <div className="tool-heading"><div><h2>Download a video</h2><p>Choose a platform or let us detect it automatically.</p></div><span className="tool-number">01 / 03</span></div>
@@ -418,6 +490,7 @@ function App() {
                   </button>
                 ))}
               </div>
+              {hostedPreview && <div className="hosted-form-helper"><Info size={18}/><div><strong>Use the same downloader here with the Clipora extension.</strong><p>{extensionConnected ? 'Extension detected. Choose a link and check formats; the local Windows engine handles social videos.' : 'Install the Chrome/Edge extension, start the Windows engine, and pair the extension to enable supported video downloads. Direct images and media files can be saved with the extension.'}</p><a href={EXTENSION_DOWNLOAD_URL} download>Get extension <Download size={14}/></a></div></div>}
               <form className="url-form" onSubmit={inspect}>
                 <label htmlFor="video-url">Video URL</label>
                 <div className="url-input-wrap"><Link2 size={20} className="url-link-icon" />
@@ -463,7 +536,7 @@ function App() {
                     {!jobId && <button type="button" className="download-action" onClick={download} disabled={type === 'mp4' && !hasVideoQuality}><Download size={19} /> Prepare download <ArrowRight size={17} /></button>}
                     {activeJob && <div className="job-progress" role="status"><div className="progress-head"><strong>{job.status === 'queued' ? 'Queued for download' : 'Preparing your file...'}</strong><span>{Math.round(job.progress || 0)}%</span></div><div className="progress-track"><div style={{ width: `${job.progress || 0}%` }} /></div><p>{job.status === 'queued' ? 'Your video will start processing shortly.' : [job.speed, job.eta && `ETA ${job.eta}`].filter(Boolean).join(' • ') || 'Downloading and merging video/audio on the server...'}</p></div>}
                     {activeJob && <button type="button" className="retry-download" onClick={cancelDownload}><CloseIcon size={15} /> Cancel download</button>}
-                    {job?.status === 'ready' && <div className="ready-block"><p><CheckCircle2 size={17} /> Your file is ready! <span>{fmtBytes(job.sizeBytes)}</span></p><a className="download-action ready-action" href={job.downloadUrl} download><ArrowDownToLine size={19} /> Save to device <ArrowRight size={17} /></a></div>}<label style={{display:'flex',alignItems:'center',gap:9,marginTop:12,fontSize:12,color:'#668580'}}><input type="checkbox" checked={autoSave} onChange={e=>{setAutoSave(e.target.checked);localStorage.setItem('cliporaAutoSave',e.target.checked?'1':'0');}}/> Automatically send completed downloads to Chrome Downloads</label>
+                    {job?.status === 'ready' && <div className="ready-block"><p><CheckCircle2 size={17} /> Your file is ready! {Number.isFinite(job.sizeBytes) && <span>{fmtBytes(job.sizeBytes)}</span>}</p>{hostedPreview ? <span className="chrome-save-hint">Saved in Chrome Downloads. Open Chrome Downloads (Ctrl+J) to find the file.</span> : <a className="download-action ready-action" href={job.downloadUrl} download><ArrowDownToLine size={19} /> Save to device <ArrowRight size={17} /></a>}</div>}{!hostedPreview && <label style={{display:'flex',alignItems:'center',gap:9,marginTop:12,fontSize:12,color:'#668580'}}><input type="checkbox" checked={autoSave} onChange={e=>{setAutoSave(e.target.checked);localStorage.setItem('cliporaAutoSave',e.target.checked?'1':'0');}}/> Automatically send completed downloads to Chrome Downloads</label>}
                     {['error', 'cancelled'].includes(job?.status) && <button className="retry-download" type="button" onClick={() => { setJobId(null); setJob(null); setError(''); }}><RotateCcw size={16} /> Try again</button>}
                   </div>
                 </div>
@@ -473,7 +546,6 @@ function App() {
             </div>
           </div>
           <div className="below-tool-caption"><ShieldCheck size={15} /> Download only videos you own, are licensed to use, or have permission to save. <span>Services may restrict access.</span></div>
-          </>}
         </section>
 
         <section className="downloads-section container" id="downloads" aria-labelledby="downloads-heading">

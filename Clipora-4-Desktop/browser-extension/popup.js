@@ -115,8 +115,16 @@ $('chromeDownloads').addEventListener('click', () => chrome.tabs.create({ url: '
 $('url').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); analyze().catch(err => msg(err.message, true)); } });
 (async () => {
   try { const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.url?.startsWith('https://')) $('url').value = tab.url;
+    const fromContext = new URLSearchParams(location.search).get('url');
+    if (fromContext && /^https?:\/\//i.test(fromContext)) {
+      $('url').value = fromContext;
+    } else if (tab?.url?.startsWith('https://')) {
+      $('url').value = tab.url;
+    }
   } catch { /* new-tab pages */ }
   await refresh();
+  if (new URLSearchParams(location.search).has('url')) {
+    analyze().catch(e => msg(e.message, true));
+  }
   setInterval(refresh, 1300);
 })();

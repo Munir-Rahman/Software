@@ -14,3 +14,10 @@ Chrome download may show zero/unknown byte progress until video merge/conversion
 You do not need to upload or run any server on Vercel for local desktop use.
 
 Detailed help: README.md
+
+CLIPORA 4.1 EXTENSION FIX:
+- Download and unzip the NEW Clipora Chrome/Edge extension from the website.
+- Remove or disable the old extension, then use Chrome > Extensions > Developer mode > Load unpacked > Clipora-Extension folder.
+- Start the Windows Clipora engine (START-CLIPORA.cmd); enter its 8-digit pairing code in the extension popup.
+- On YouTube, use the extension popup > Show page buttons. Video badges now open an MP4/MP3 + quality chooser instead of downloading thumbnail WebP images.
+- The public website's original paste-link card is restored; using it requires this updated extension (and local engine for social sites).

@@ -1,4 +1,4 @@
-# Clipora Desktop 4.0 — Chrome Downloads + Local Media Engine
+# Clipora Desktop 4.1 — Format chooser, restored web card and Chrome Downloads
 
 Clipora is a **local desktop downloader** with a React website, an Express/yt-dlp/FFmpeg processing engine, and a Chrome/Edge Manifest V3 extension. The extension uses Chrome's native `chrome.downloads` API: files appear in the browser's Downloads panel (`Ctrl+J`) and in the PC's `Downloads/Clipora` folder. The extension popup can show Clipora processing progress while media is being extracted. It **does not** need to open the Clipora website to initiate downloads.
 
@@ -112,7 +112,7 @@ This is a **tested source prototype**, not a verified production build. Node tes
 
 ## Public Vercel preview and contact
 
-The public Vercel build uses `VITE_HOSTED_PREVIEW=1` and presents the original Clipora React UI plus a clear setup notice. This hosted site **does not run** the persistent local yt-dlp/FFmpeg engine, and social-media link analysis/download calls are intentionally disabled on the static build. For actual extraction users run the Windows server locally and install the browser extension. Public users must not assume Vercel is processing videos.
+The public Vercel build uses `VITE_HOSTED_PREVIEW=1` and **keeps the original paste-link, quality selection and download card**. With the latest Clipora Chrome/Edge extension installed and paired to the local Windows engine, the hosted React UI can ask the extension to inspect URLs and submit supported downloads into Chrome Downloads. Without that extension and engine, the form explains why processing is unavailable. Vercel itself **does not run** the persistent local yt-dlp/FFmpeg engine. Static direct images and media URLs may be downloadable by Chrome without the engine if the extension is installed.
 
 Project author: **Munir Rahman Rahmani** · contact: **munirrahmanrahmani0@gmail.com** · GitHub: https://github.com/Munir-Rahman/Software/tree/main/Clipora-4-Desktop
 
@@ -129,6 +129,16 @@ Visit **https://clipora-4-desktop.vercel.app/#downloads** for explicitly labeled
 - **Android/iPhone React Native source ZIP:** `/downloads/clipora-mobile-android-ios-source.zip` — development source, not an APK/IPA, mobile extraction on iOS not implemented.
 - **Chrome/Edge extension ZIP:** `/downloads/clipora-chrome-edge-extension-v4.zip` — unpack manually via browser extensions page.
 
-The website on Vercel no longer shows a nonfunctional media-analysis form: hosted visitors see the desktop setup prompt and download center instead. The full downloader form still works when the local backend is running.
+The website on Vercel now retains the original paste-link downloader card. For actual format inspection and saving on Vercel, install the Clipora extension and (for YouTube and social links) start and pair the local Windows engine. The static site itself cannot execute yt-dlp.
 
 **Do not claim that the mobile source ZIP installs as an app.** A verified native APK requires an Android build; iPhone IPA requires Apple signing and distribution. No such binaries are included in this release.
+
+## 4.1 — Choose MP4/MP3 before downloading from YouTube
+
+1. Start your local Clipora Windows engine and open the updated Chrome/Edge extension popup. Enter the 8-digit pairing code from the terminal once per engine session.
+2. Open a YouTube video or channel and click **Show page buttons** in the Clipora popup. The extension displays **Clipora video** badges on video thumbnails and a video player, not an image-download action for YouTube WebP thumbnails.
+3. Click a badge. An on-page dialog checks the **video's watch URL**, displays its name, and lets you pick **MP4 resolution** or **MP3 bitrate**, then **Download to Chrome**. Downloads appear in `Ctrl+J` / `Downloads/Clipora`.
+4. Alternatively, right-click a linked YouTube thumbnail and choose **Download with Clipora** to open the format picker in a separate extension window, or use the main popup with a pasted URL. The browser extension **must be reloaded in chrome://extensions** after replacing an older version.
+5. The same URL-paste card is visible on the public Vercel site. If Chrome has the extension installed and paired, the website delegates extraction to the extension; without it, it explains the missing local engine rather than pretending the site can download independently.
+
+**Limits:** the badging is best-effort for supported page structures. Resolutions come from the provider's accessible streams; MP3 bitrates are encoding targets, not guarantees of source audio quality. The extension cannot decrypt DRM, fetch private course lessons, or guarantee every provider. Extension use and live YouTube downloads require device testing.

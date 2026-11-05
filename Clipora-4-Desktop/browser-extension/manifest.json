@@ -1,13 +1,34 @@
 {
   "manifest_version": 3,
-  "name": "Clipora — One Click Media Downloader",
-  "version": "4.0.0",
-  "description": "Download supported videos, MP3 audio and images directly from Chrome. Connects to your local Clipora desktop engine.",
-  "permissions": ["activeTab", "scripting", "downloads", "storage", "contextMenus"],
-  "host_permissions": ["http://127.0.0.1:3001/*"],
+  "name": "Clipora \u2014 One Click Media Downloader",
+  "version": "4.1.0",
+  "description": "Choose video/audio and quality from YouTube thumbnails, or download direct media using the local Clipora engine.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "downloads",
+    "storage",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:3001/*"
+  ],
   "action": {
-    "default_title": "Clipora — download media",
+    "default_title": "Clipora \u2014 download media",
     "default_popup": "popup.html"
   },
-  "background": { "service_worker": "service-worker.js" }
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://clipora-4-desktop.vercel.app/*"
+      ],
+      "js": [
+        "site-bridge.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
 }

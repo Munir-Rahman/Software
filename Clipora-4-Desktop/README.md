@@ -119,3 +119,16 @@ Project author: **Munir Rahman Rahmani** · contact: **munirrahmanrahmani0@gmail
 Deploy this project to Vercel from the `Clipora-4-Desktop` root directory using framework **Vite**, build command `npm run build`, output directory `dist`, and production environment variable `VITE_HOSTED_PREVIEW=1`.
 
 Never commit `.env`, tools, binaries, downloads, or `server/runtime/` to a public repository.
+
+
+## Public download center (Vercel)
+
+Visit **https://clipora-4-desktop.vercel.app/#downloads** for explicitly labeled packages:
+
+- **Windows desktop source ZIP:** `/downloads/clipora-desktop-windows-source-v4.zip` — source and setup scripts, not a signed `.exe`.
+- **Android/iPhone React Native source ZIP:** `/downloads/clipora-mobile-android-ios-source.zip` — development source, not an APK/IPA, mobile extraction on iOS not implemented.
+- **Chrome/Edge extension ZIP:** `/downloads/clipora-chrome-edge-extension-v4.zip` — unpack manually via browser extensions page.
+
+The website on Vercel no longer shows a nonfunctional media-analysis form: hosted visitors see the desktop setup prompt and download center instead. The full downloader form still works when the local backend is running.
+
+**Do not claim that the mobile source ZIP installs as an app.** A verified native APK requires an Android build; iPhone IPA requires Apple signing and distribution. No such binaries are included in this release.

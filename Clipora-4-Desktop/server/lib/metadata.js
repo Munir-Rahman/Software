@@ -29,7 +29,8 @@ export function friendlyError(error, maxDownloadMB) {
   if (error.code === 'OUTPUT-LIMIT') return 'The extractor response was unexpectedly large.';
   if (error.code === 'CANCELLED') return 'Download was cancelled.';
   const e = (error.stderr || '').toLowerCase();
-  if (e.includes('sign in') || e.includes('login') || e.includes('private video') || e.includes('members-only')) return 'This video is private or requires an account.';
+  if (e.includes('sign in to confirm') && e.includes('bot')) return 'YouTube is rejecting requests from this cloud server with a bot-verification challenge. This cannot be fixed by changing the website; use Clipora Desktop or try another permitted source.';
+  if (e.includes('sign in') || e.includes('login') || e.includes('private video') || e.includes('members-only')) return 'This video requires an account or is not accessible to this server.';
   if (e.includes('unsupported url')) return 'The extractor does not currently support this link.';
   if (e.includes('requested format is not available')) return 'The chosen resolution could not be downloaded.';
   if (e.includes('ffmpeg') || e.includes('ffprobe')) return 'FFmpeg is missing or unable to process the source. Run npm run doctor.';

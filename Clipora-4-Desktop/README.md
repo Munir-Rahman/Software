@@ -145,3 +145,45 @@ The website retains the original paste-link downloader card and tries a bounded 
 5. The same URL-paste card is visible on the public Vercel site. If Chrome has the extension installed and paired, the website delegates extraction to the extension; without it, it explains the missing local engine rather than pretending the site can download independently.
 
 **Limits:** the badging is best-effort for supported page structures. Resolutions come from the provider's accessible streams; MP3 bitrates are encoding targets, not guarantees of source audio quality. The extension cannot decrypt DRM, fetch private course lessons, or guarantee every provider. Extension use and live YouTube downloads require device testing.
+
+## Public, password-free Render deployment (restricted mode)
+
+The public Clipora frontend on Vercel can call the Docker backend on Render via a
+same-origin Vercel rewrite (`/api/*`). For **password-free** access, set the following
+Render environment variables; use a privately generated secret, and **never put it
+in the repository or client-side environment**:
+
+```ini
+HOST=0.0.0.0
+PORT=10000
+TRUST_PROXY=1
+PUBLIC_DOWNLOADS=1
+ACCESS_PASSWORD=
+SESSION_SECRET=<random 32+ character secret configured privately>
+MAX_DOWNLOAD_MB=45
+MAX_TOTAL_MB=100
+MAX_CONCURRENT=1
+MAX_QUEUED=3
+MAX_PLAYLIST_ITEMS=10
+MAX_INSPECTS=1
+MAX_DURATION_SECONDS=600
+FILE_TTL_HOURS=1
+```
+
+Visitors do not enter a password. `GET /api/auth` issues a signed, HTTP-only,
+short-lived anonymous session cookie. File, job progress and library APIs only expose
+that browser session's jobs. A public server rate-limits inspection and download
+requests. To reduce SSRF exposure, arbitrary direct-media URLs are disabled in this
+public hosting mode; save those through the browser or run Clipora Desktop locally.
+
+**This is a deliberately limited demonstration, not a turnkey unrestricted public
+media-extraction service.** Free Render instances sleep when idle and have ephemeral
+storage. Limits, anonymous sessions, application-level URL validation and per-worker
+rate limits do not replace network egress restrictions, edge WAF protection and
+monitoring. The server can be abused or incur resource costs if opened broadly.
+
+YouTube and other platforms may challenge Render's cloud IP. The server now
+reports that condition as a *provider verification* error instead of a generic
+internal server error. There is no guarantee a YouTube video can be extracted from
+Render or Vercel. Don't upload personal account cookies to an untrusted public
+service to work around provider verification.

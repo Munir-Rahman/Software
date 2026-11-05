@@ -25,15 +25,19 @@ export const config = {
   inspectTimeout: numberSetting('INSPECT_TIMEOUT_MS', 60000, 300000),
   jobTimeout: numberSetting('JOB_TIMEOUT_MINUTES', 45, 1440) * 60000,
   ttl: numberSetting('FILE_TTL_HOURS', 720, 8760) * 3600000,
-  accessPassword: process.env.ACCESS_PASSWORD || '',
+  accessPassword: process.env.PUBLIC_DOWNLOADS === '1' ? '' : (process.env.ACCESS_PASSWORD || ''),
+  publicDownloads: process.env.PUBLIC_DOWNLOADS === '1',
   sessionSecret: process.env.SESSION_SECRET || '',
   trustProxy: process.env.TRUST_PROXY === '1',
 };
 export function validateStartup(configValue = config) {
   const publicBind = !['127.0.0.1', 'localhost', '::1'].includes(configValue.host);
-  if ((publicBind || process.env.NODE_ENV === 'production') && (!configValue.accessPassword || configValue.accessPassword.length < 12 || configValue.sessionSecret.length < 32)) {
+  if ((publicBind || process.env.NODE_ENV === 'production') && !configValue.publicDownloads && (!configValue.accessPassword || configValue.accessPassword.length < 12 || configValue.sessionSecret.length < 32)) {
     throw new Error('Public binding requires ACCESS_PASSWORD (12+ chars) and SESSION_SECRET (32+ chars). See .env.example.');
   }
-  if (configValue.accessPassword && configValue.sessionSecret.length < 32) throw new Error('SESSION_SECRET must be 32+ characters when ACCESS_PASSWORD is set.');
+  if ((configValue.accessPassword || configValue.publicDownloads) && configValue.sessionSecret.length < 32) throw new Error('SESSION_SECRET must be 32+ characters for access sessions.');
+  if (configValue.publicDownloads && (configValue.maxDownloadMB > 45 || configValue.maxTotalMB > 100 || configValue.maxConcurrent > 1 || configValue.maxQueued > 3 || configValue.maxDuration > 600 || configValue.maxPlaylistItems > 10)) {
+    throw new Error('PUBLIC_DOWNLOADS requires strict per-file, storage, concurrency, playlist and duration limits.');
+  }
   if (configValue.maxTotalMB < configValue.maxDownloadMB) throw new Error('MAX_TOTAL_MB must be >= MAX_DOWNLOAD_MB.');
 }

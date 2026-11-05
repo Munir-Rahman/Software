@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config, ROOT, validateStartup } from './lib/config.js';
 import { cookieValue, verifySession, verifyPassword, makeSession, setSessionCookie, clearSessionCookie } from './lib/auth.js';
+import { visitorOwner, canAccessJob } from './lib/visitor.js';
 import { runBinary } from './lib/process.js';
 import { metadataForClient, friendlyError } from './lib/metadata.js';
 import { downloadDirect, validateDirectUrl } from './lib/direct.js';
@@ -52,19 +53,35 @@ function requireXHR(req, res, next) {
   }
   next();
 }
+function validVisitor(req) {
+  return config.sessionSecret && verifySession(cookieValue(req), config.sessionSecret);
+}
+function ownerKey(req) {
+  return visitorOwner(cookieValue(req), config.sessionSecret);
+}
+function belongsToVisitor(req, job) {
+  return canAccessJob(job, ownerKey(req), config.publicDownloads);
+}
 function authenticate(req, res, next) {
-  if (!config.accessPassword || verifySession(cookieValue(req), config.sessionSecret)) return next();
+  if (config.publicDownloads) {
+    if (validVisitor(req)) return next();
+    return res.status(401).json({ error: 'Anonymous session expired. Reload Clipora to continue.', code: 'SESSION_EXPIRED' });
+  }
+  if (!config.accessPassword || validVisitor(req)) return next();
   return res.status(401).json({ error: 'Sign in to use the downloader.', code: 'AUTH_REQUIRED' });
 }
 function limited(windowMs, limit) {
   return rateLimit({ windowMs, limit, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: 'Too many requests. Try again later.' } });
 }
 const loginLimiter = limited(15 * 60000, 8);
-const inspectLimiter = limited(15 * 60000, 25);
-const downloadLimiter = limited(60 * 60000, 10);
+const inspectLimiter = limited(15 * 60000, config.publicDownloads ? 8 : 25);
+const downloadLimiter = limited(60 * 60000, config.publicDownloads ? 2 : 10);
 
 app.get('/api/health', (_req, res) => res.json({ ok: !stopping }));
-app.get('/api/auth', (req, res) => res.json({ required: Boolean(config.accessPassword), authenticated: !config.accessPassword || verifySession(cookieValue(req), config.sessionSecret) }));
+app.get('/api/auth', (req, res) => {
+  if (config.publicDownloads && !validVisitor(req)) setSessionCookie(res, makeSession(config.sessionSecret), req);
+  return res.json({ required: Boolean(config.accessPassword), authenticated: config.publicDownloads || !config.accessPassword || validVisitor(req) });
+});
 app.post('/api/login', requireXHR, loginLimiter, (req, res) => {
   if (!config.accessPassword) return res.json({ authenticated: true });
   if (!verifyPassword(req.body?.password, config.accessPassword)) return res.status(401).json({ error: 'Incorrect access password.' });
@@ -238,6 +255,7 @@ app.post('/api/inspect', requireXHR, inspectLimiter, async (req, res, next) => {
   inspections++;
   try {
     const { url, platform } = findPlatform(req.body?.url);
+    if (config.publicDownloads && platform.key === 'direct') throw userError('Direct URL fetching is disabled on the public server for network safety. Save direct media in your browser or use Clipora Desktop.', 422);
     validatePlatform(req.body?.platform, platform);
     res.json(await inspect(url, platform));
   } catch (error) { next(error); }
@@ -281,10 +299,11 @@ async function versionOf(cmd, flag) {
 }
 app.get('/api/jobs', (req, res) => {
   const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 100));
-  res.json({ jobs: [...jobs.values()].sort((a,b) => b.createdAt - a.createdAt).slice(0, limit).map(publicJob) });
+  res.json({ jobs: [...jobs.values()].filter(job => belongsToVisitor(req, job)).sort((a,b) => b.createdAt - a.createdAt).slice(0, limit).map(publicJob) });
 });
 function validatedJobInput(input) {
   const { url, platform, mediaKind } = findPlatform(input?.url);
+  if (config.publicDownloads && platform.key === 'direct') throw userError('Direct file downloads are unavailable from the public server. Use the local desktop app.', 422);
   validatePlatform(input?.platform, platform);
   if (platform.key === 'youtube' && findPlatform(url).playlist) throw userError('Select an individual video from the playlist first.');
   const type = input?.type;
@@ -300,9 +319,9 @@ function validatedJobInput(input) {
   return { url, platform: platform.key, type, height: type === 'mp4' ? height : null,
     audioBitrate: type === 'mp3' ? audioBitrate : null, title: title || (mediaKind ? `Direct ${mediaKind}` : 'Video'), collection };
 }
-function newJob(input) {
+function newJob(input, owner = null) {
   const id = randomUUID(); const now = Date.now();
-  const job = { id, ...input, status: 'queued', progress: 0, speed: null, eta: null, error: null,
+  const job = { id, ...input, owner, status: 'queued', progress: 0, speed: null, eta: null, error: null,
     fileName: null, sizeBytes: null, createdAt: now, updatedAt: now };
   jobs.set(id, job); queue.push(job); return job;
 }
@@ -315,7 +334,8 @@ app.post('/api/download/batch', requireXHR, downloadLimiter, async (req, res, ne
     if (await storageBytes() > maxStorageBytes - maxBytes) throw userError('Server storage is nearly full.', 507);
     const entries = requested.map(validatedJobInput);
     if (entries.some(entry => entry.platform !== 'youtube')) throw userError('Batch mode currently supports selected YouTube playlist videos only.');
-    const queued = entries.map(newJob);
+    const owner = config.publicDownloads ? ownerKey(req) : null;
+    const queued = entries.map(item => newJob(item, owner));
     void pump(); res.status(202).json({ jobs: queued.map(publicJob) });
   } catch (error) { next(error); }
 });
@@ -325,18 +345,18 @@ app.post('/api/download', requireXHR, downloadLimiter, async (req, res, next) =>
     const input = validatedJobInput(req.body);
     if (queue.length >= config.maxQueued) throw userError('The queue is full. Please try later.', 429);
     if (await storageBytes() >= maxStorageBytes - maxBytes) throw userError('Server storage quota is nearly full. Try later.', 507);
-    const job = newJob(input);
+    const job = newJob(input, config.publicDownloads ? ownerKey(req) : null);
     void pump(); res.status(202).json(publicJob(job));
   } catch (error) { next(error); }
 });
 app.get('/api/jobs/:id', (req, res, next) => {
   const job = jobs.get(req.params.id);
-  if (!job) return next(userError('The job was not found or has expired.', 404));
+  if (!job || !belongsToVisitor(req, job)) return next(userError('The job was not found or has expired.', 404));
   res.json(publicJob(job));
 });
 app.post('/api/jobs/:id/cancel', requireXHR, async (req, res, next) => {
   const job = jobs.get(req.params.id);
-  if (!job) return next(userError('The job was not found or has expired.', 404));
+  if (!job || !belongsToVisitor(req, job)) return next(userError('The job was not found or has expired.', 404));
   if (job.status === 'queued') {
     const index = queue.findIndex(j => j.id === job.id);
     if (index !== -1) queue.splice(index, 1);
@@ -444,7 +464,7 @@ async function folderBytes(folder) {
 app.get('/api/files/:id', async (req, res, next) => {
   try {
     const job = jobs.get(req.params.id);
-    if (!job || job.status !== 'ready' || !job.fileName) throw userError('This file has expired.', 404);
+    if (!job || !belongsToVisitor(req, job) || job.status !== 'ready' || !job.fileName) throw userError('This file has expired.', 404);
     const file = path.join(config.downloadDir, job.id, job.fileName);
     const s = await stat(file);
     if (!s.isFile()) throw userError('The file cannot be found.', 404);
@@ -464,7 +484,7 @@ function saveManifest() {
 }
 async function writeManifest() {
   const available = [...jobs.values()].filter(j => j.status === 'ready').map(j => ({
-    id: j.id, type: j.type, status: j.status, fileName: j.fileName, sizeBytes: j.sizeBytes,
+    id: j.id, owner: j.owner || null, type: j.type, status: j.status, fileName: j.fileName, sizeBytes: j.sizeBytes,
     title: j.title, platform: j.platform, collection: j.collection, height: j.height, audioBitrate: j.audioBitrate,
     createdAt: j.createdAt, updatedAt: j.updatedAt,
   }));
@@ -515,14 +535,16 @@ if (fs.existsSync(DIST)) {
   });
 }
 app.use((err, _req, res, _next) => {
+  const extractorFailure = err.message === 'Downloader subprocess exited with error';
+  const providerChallenge = extractorFailure && /sign in to confirm[^\n]*bot/i.test(err.stderr || '');
   const status = Number.isInteger(err.status) && err.status >= 400 && err.status <= 599 ? err.status
-    : err.code === 'ENOENT' ? 503 : err.code === 'TIMEOUT' ? 504 : 500;
-  if (status >= 500) console.error('API error:', err.message);
-  res.status(status).json({ error: status === 500 ? 'Server error. Review server logs.' : status === 503 && err.code === 'ENOENT' ? 'yt-dlp is missing. Run the Windows setup script or npm run doctor.' : err.status ? err.message : friendlyError(err, config.maxDownloadMB) });
+    : providerChallenge ? 422 : extractorFailure ? 502 : err.code === 'ENOENT' ? 503 : err.code === 'TIMEOUT' ? 504 : 500;
+  if (status >= 500) console.error('API error:', extractorFailure ? 'yt-dlp extraction failed (provider restriction or unavailable format)' : err.message);
+  res.status(status).json({ error: status === 500 ? 'Server error. Review server logs.' : providerChallenge ? friendlyError(err, config.maxDownloadMB) : status === 503 && err.code === 'ENOENT' ? 'yt-dlp is missing. Run the Windows setup script or npm run doctor.' : err.status ? err.message : friendlyError(err, config.maxDownloadMB) });
 });
 await restoreAndClean();
 const listener = app.listen(config.port, config.host, () => {
-  console.log(`Clipora listening on http://${config.host}:${config.port} (${config.accessPassword ? 'password-protected' : 'local-only'})`);
+  console.log(`Clipora listening on http://${config.host}:${config.port} (${config.publicDownloads ? 'public, anonymous sessions' : config.accessPassword ? 'password-protected' : 'local-only'})`);
   if (['127.0.0.1', 'localhost', '::1'].includes(config.host)) console.log(`\n  CLIPORA CHROME EXTENSION PAIRING CODE: ${bridgeCode}\n  Enter this code in the extension once after starting Clipora.\n`);
 });
 function shutdown() {

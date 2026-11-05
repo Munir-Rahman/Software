@@ -1,3 +1,9 @@
+## Hosted downloads (no extension) — experimental
+
+Clipora’s public Vercel website now has an optional **hosted** `/api/hosted` Python function based on `yt-dlp[default]` and `imageio-ffmpeg`. You do not need the Chrome extension or Windows engine to try it. It is explicitly bounded to one public video at a time, 10 minutes, 60 MB, and a maximum selection of 1080p. Supported provider extraction depends on platform and cloud-IP access and is **not guaranteed**. MP3 conversion needs the bundled FFmpeg runtime. Browser downloads are attachment responses, not persistent server jobs; there is no hosted playlist support, pause/resume, or download progress while the server prepares the file.
+
+This is a *limited beta*, not equivalent to a dedicated long-running download server. Hosting costs, function duration, temporary file storage, provider anti-bot measures, and internet abuse are serious constraints. Before offering it to unrestricted public traffic, deploy an upstream firewall/rate limiter and apply spend limits. Large jobs should run on a dedicated authenticated worker with persistent file storage.
+
 # Clipora Desktop 4.1 — Format chooser, restored web card and Chrome Downloads
 
 Clipora is a **local desktop downloader** with a React website, an Express/yt-dlp/FFmpeg processing engine, and a Chrome/Edge Manifest V3 extension. The extension uses Chrome's native `chrome.downloads` API: files appear in the browser's Downloads panel (`Ctrl+J`) and in the PC's `Downloads/Clipora` folder. The extension popup can show Clipora processing progress while media is being extracted. It **does not** need to open the Clipora website to initiate downloads.
@@ -101,7 +107,7 @@ npm.cmd run dev
 - **"yt-dlp missing"**: rerun `SETUP-CLIPORA.cmd`; `npm.cmd run doctor` reports which binaries are unavailable.
 - **Unsupported social link**: test the link in the website's **Find my video** feature; use only a specific public media URL, not a social homepage.
 - **Long download interrupted**: Chrome may drop idle local HTTP downloads before conversion finishes. Retry using the website then click **Save to device** after preparation; this path returns a complete file with a known size.
-- **Hosted web version**: static deployments such as Vercel can serve the React UI, but **cannot replace the local persistent yt-dlp/FFmpeg engine** used by this extension.
+- **Hosted web version**: the public website offers a bounded Python function to try short single-video downloads without an extension. It does not replace the local persistent yt-dlp/FFmpeg engine used by the extension.
 
 ## 8 — Security
 
@@ -110,16 +116,13 @@ The server binds to `127.0.0.1` by default, has strict URL validation and downlo
 This is a **tested source prototype**, not a verified production build. Node tests and source syntax checks were performed, but a complete npm install, real Chrome extension deployment, Windows binary setup and downloads from each provider were not executed in the build environment. Test thoroughly before public distribution.
 
 
-## Public Vercel preview and contact
+## Public Vercel website and contact
 
-The public Vercel build uses `VITE_HOSTED_PREVIEW=1` and **keeps the original paste-link, quality selection and download card**. With the latest Clipora Chrome/Edge extension installed and paired to the local Windows engine, the hosted React UI can ask the extension to inspect URLs and submit supported downloads into Chrome Downloads. Without that extension and engine, the form explains why processing is unavailable. Vercel itself **does not run** the persistent local yt-dlp/FFmpeg engine. Static direct images and media URLs may be downloadable by Chrome without the engine if the extension is installed.
+The public Vercel build uses `VITE_HOSTED_PREVIEW=1`. It retains the original paste-link and quality-selection card. The bounded Python `/api/hosted` function processes individual public videos on demand; users do not need any browser extension. The local Windows engine remains an option for bigger videos, playlists, and supported formats not feasible in Vercel Functions. Public hosting may incur CPU and bandwidth charges. Apply upstream rate limiting and spend alerts; no platform is guaranteed to work from cloud IPs.
 
-Project author: **Munir Rahman Rahmani** · contact: **munirrahmanrahmani0@gmail.com** · GitHub: https://github.com/Munir-Rahman/Software/tree/main/Clipora-4-Desktop
+Developer contact: **munirrahmanrahmani0@gmail.com**.
 
-Deploy this project to Vercel from the `Clipora-4-Desktop` root directory using framework **Vite**, build command `npm run build`, output directory `dist`, and production environment variable `VITE_HOSTED_PREVIEW=1`.
-
-Never commit `.env`, tools, binaries, downloads, or `server/runtime/` to a public repository.
-
+Deploy this project to Vercel from `Clipora-4-Desktop` with framework **Vite**, build command `npm run build`, output directory `dist`, and `VITE_HOSTED_PREVIEW=1` (from `.env.production`). The Python function requires the `requirements.txt` dependencies and an enabled Python runtime.
 
 ## Public download center (Vercel)
 
@@ -129,7 +132,7 @@ Visit **https://clipora-4-desktop.vercel.app/#downloads** for explicitly labeled
 - **Android/iPhone React Native source ZIP:** `/downloads/clipora-mobile-android-ios-source.zip` — development source, not an APK/IPA, mobile extraction on iOS not implemented.
 - **Chrome/Edge extension ZIP:** `/downloads/clipora-chrome-edge-extension-v4.zip` — unpack manually via browser extensions page.
 
-The website on Vercel now retains the original paste-link downloader card. For actual format inspection and saving on Vercel, install the Clipora extension and (for YouTube and social links) start and pair the local Windows engine. The static site itself cannot execute yt-dlp.
+The website retains the original paste-link downloader card and tries a bounded Vercel Python downloader for individual public links. No extension is needed for hosted processing. The optional extension and local Windows engine remain useful for playlists and bigger files.
 
 **Do not claim that the mobile source ZIP installs as an app.** A verified native APK requires an Android build; iPhone IPA requires Apple signing and distribution. No such binaries are included in this release.
 

@@ -17,6 +17,18 @@ const MOBILE_SOURCE_URL = '/downloads/clipora-mobile-android-ios-source.zip';
 const hostedPreview = import.meta.env.VITE_HOSTED_PREVIEW === '1';
 
 const PAGE_BRIDGE_TIMEOUT = 8500;
+const HOSTED_API = '/api/hosted';
+function isDirectMediaLink(value) {
+  try { const u = new URL(value); return u.protocol === 'https:' && /\.(mp4|mov|m4v|webm|mp3|m4a|wav|ogg|jpg|jpeg|png|webp|gif)$/i.test(u.pathname); } catch { return false; }
+}
+function directFileInfo(value) {
+  const u = new URL(value);
+  const name = decodeURIComponent(u.pathname.split('/').pop() || 'Media file').slice(0, 150);
+  const isImage = /\.(jpg|jpeg|png|webp|gif)$/i.test(u.pathname);
+  const isAudio = /\.(mp3|m4a|wav|ogg)$/i.test(u.pathname);
+  return { kind: 'single', platform: 'direct', title: name, creator: u.hostname, thumbnail: null, duration: null, viewCount: null, resolutions: [], sourceUrl: value, mediaKind: isImage ? 'image' : isAudio ? 'audio' : 'video' };
+}
+
 function extensionRequest(action, payload = {}) {
   return new Promise((resolve, reject) => {
     // This site bridge exists only when the user's Clipora Chrome/Edge extension
@@ -236,10 +248,7 @@ function App() {
         audioBitrate, title: item.title, collection: video.title,
       }));
       if (hostedPreview) {
-        const response = await extensionRequest('batch', { items: items.map(item => ({url: item.url, title: item.title})),
-          type: playlistType, height: playlistHeight, bitrate: audioBitrate, collection: video.title });
-        const count = response.downloads.filter(x => !x.error).length;
-        setNotice(`${count} download(s) added to Chrome Downloads. Press Ctrl+J for progress.`);
+        throw new Error('Hosted downloads currently process one video at a time. For playlists, use Clipora Desktop.');
       } else {
         const response = await apiRequest('/download/batch', { method: 'POST', body: JSON.stringify({ items }) });
         setNotice(`${response.jobs.length} videos queued. Open Download library to see progress.`);
@@ -382,9 +391,10 @@ function App() {
     setJob(null);
     setJobId(null);
     try {
-      const data = hostedPreview ? await extensionRequest('inspect', { url: current })
+      const data = hostedPreview
+        ? (isDirectMediaLink(current) ? directFileInfo(current)
+          : await apiRequest('/hosted', { method: 'POST', body: JSON.stringify({ url: current }) }))
         : await apiRequest('/inspect', { method: 'POST', body: JSON.stringify({ url: current, platform }) });
-      if (hostedPreview) setExtensionConnected(true);
       if (seq !== requestSeq.current) return;
       setVideo(data);
       if (data.kind === 'playlist') {
@@ -405,14 +415,25 @@ function App() {
     setError('');
     try {
       if (hostedPreview) {
-        const started = await extensionRequest('start', {
-          url: video.sourceUrl || url.trim(), platform: video.platform, height: selectedHeight || 720,
-          type, audioBitrate, title: video.title, kind: video.mediaKind, collection,
+        if (video.platform === 'direct') {
+          window.open(video.sourceUrl, '_blank', 'noopener,noreferrer');
+          setNotice('Direct media opened in a new tab. Use your browser’s Save option if the file opens instead of downloading.');
+          return;
+        }
+        const params = new URLSearchParams({
+          url: video.sourceUrl || url.trim(),
+          type: type === 'mp3' ? 'mp3' : 'mp4',
+          height: String(selectedHeight || 720),
+          bitrate: String(audioBitrate),
         });
-        const id = started.jobId || `direct:${started.downloadId}`;
-        setJobId(id);
-        setJob({ id, status: 'downloading', progress: 0 });
-        setNotice('Download started in Chrome! Press Ctrl+J to see the file and its progress.');
+        const link = document.createElement('a');
+        link.href = `${HOSTED_API}?${params.toString()}`;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setNotice('The hosted server is preparing your file. A browser download should begin if the provider permits access. The new tab will display any server error. No extension is needed.');
       } else {
         const started = await apiRequest('/download', {
           method: 'POST',
@@ -468,7 +489,7 @@ function App() {
       </header>
 
       <main>
-        {hostedPreview && <aside className="container hosted-banner" role="status"><Info size={21}/><div><strong>The paste-link downloader is back.</strong><p>Install and pair the Clipora browser extension to analyze social-media links here. Local Windows processing is required; Vercel does not run yt-dlp. Mobile packages remain developer previews.</p></div><a href="#downloader">Paste a link <ArrowRight size={15}/></a></aside>}
+        {hostedPreview && <aside className="container hosted-banner" role="status"><Info size={21}/><div><strong>Clipora downloads without an extension.</strong><p>Try our hosted downloader for short public videos (up to 10 minutes and 60 MB). You can inspect formats and save to your computer here. Bigger downloads and playlists still work best in the Windows app.</p></div><a href="#downloader">Paste a link <ArrowRight size={15}/></a></aside>}
         <section className="hero container" aria-labelledby="hero-title">
           <div className="hero-eyebrow"><span className="eyebrow-star"><Sparkles size={14} fill="currentColor" /></span> ONE LINK. ENDLESS POSSIBILITIES. <span className="eyebrow-line" /></div>
           <h1 id="hero-title">Your favorite videos.<br /><span>Ready when you are.</span></h1>
@@ -490,7 +511,7 @@ function App() {
                   </button>
                 ))}
               </div>
-              {hostedPreview && <div className="hosted-form-helper"><Info size={18}/><div><strong>Use the same downloader here with the Clipora extension.</strong><p>{extensionConnected ? 'Extension detected. Choose a link and check formats; the local Windows engine handles social videos.' : 'Install the Chrome/Edge extension, start the Windows engine, and pair the extension to enable supported video downloads. Direct images and media files can be saved with the extension.'}</p><a href={EXTENSION_DOWNLOAD_URL} download>Get extension <Download size={14}/></a></div></div>}
+              {hostedPreview && <div className="hosted-form-helper"><Info size={18}/><div><strong>Download here — no extension required.</strong><p>Paste a public video link, choose MP4 or MP3 and start the browser download. Hosted mode supports short videos (up to 10 minutes, 60 MB, 1080p) when the provider permits access. Larger videos and playlists need Clipora Desktop.</p><a href="#downloads">Get desktop downloader <Download size={14}/></a></div></div>}
               <form className="url-form" onSubmit={inspect}>
                 <label htmlFor="video-url">Video URL</label>
                 <div className="url-input-wrap"><Link2 size={20} className="url-link-icon" />
@@ -556,7 +577,7 @@ function App() {
             <article className="device-download-card"><div className="device-card-heading"><span className="device-icon"><MonitorDown size={25}/></span><span className="device-platform">APPLE IPHONE</span></div><h3>iPhone app project</h3><p>React Native iOS source for on-device direct media downloads and a local saved-file library.</p><span className="device-package-type">Developer preview · Source ZIP</span><a className="device-download-btn" href={MOBILE_SOURCE_URL} download="clipora-mobile-android-ios-source.zip"><Download size={17}/> Download iOS source</a><small>No signed IPA provided. iOS social-site extraction and playlist conversion are not implemented.</small></article>
             <article className="device-download-card"><div className="device-card-heading"><span className="device-icon"><Globe2 size={25}/></span><span className="device-platform">CHROME / EDGE</span></div><h3>Browser extension</h3><p>Paste links or add download buttons to discoverable media on webpages. Pairs with the Windows engine for supported social sites.</p><span className="device-package-type">Unpacked browser extension ZIP</span><a className="device-download-btn" href={EXTENSION_DOWNLOAD_URL} download="clipora-chrome-edge-extension-v4.zip"><Download size={17}/> Download extension</a><small>Manual installation required in Developer mode. Not a Chrome Web Store installation.</small></article>
           </div>
-          <div className="download-install-note"><ShieldCheck size={18}/><p>Clipora works with public or authorized media only. This page distributes source packages; it does not itself process social-media videos. Android native extraction is experimental, and the mobile projects need compilation and signing.</p></div>
+          <div className="download-install-note"><ShieldCheck size={18}/><p>Clipora works with public or authorized media only. This website also offers limited hosted video processing; large or restricted downloads require desktop extraction. Android native extraction is experimental, and the mobile projects need compilation and signing.</p></div>
         </section>
         <section className="extension-section container" id="extension" aria-labelledby="extension-heading">
           <div className="extension-card">
@@ -574,7 +595,7 @@ function App() {
                 <li><span>2</span><p><strong>Open extensions</strong> Visit <code>chrome://extensions</code> or <code>edge://extensions</code>, enable Developer mode, then choose “Load unpacked”.</p></li>
                 <li><span>3</span><p><strong>Choose folder &amp; pair</strong> Select <code>Clipora-Extension</code>. Start Clipora's local engine and enter its pairing code for social-media downloads.</p></li>
               </ol>
-              <p className="extension-install-note"><Info size={15}/> Chrome does not install extensions automatically from websites. Some direct files download without the engine; social-media extraction needs the Clipora desktop server.</p>
+              <p className="extension-install-note"><Info size={15}/> Chrome does not install extensions automatically from websites. Some direct files download without the engine; the hosted webpage can also process some individual public videos without the extension.</p>
             </div>
           </div>
         </section>
@@ -595,8 +616,8 @@ function App() {
         </section>
         <section className="platform-section container" id="platforms">
           <div className="section-overline">WORKS ACROSS YOUR FAVORITE PLATFORMS</div>
-          <div className="section-flex"><div><h2>One place for <span>every platform.</span></h2><p>No switching between download tools. On your Windows installation, Clipora can check supported links and list available formats.</p></div><a className="text-link" href={hostedPreview ? '#downloads' : '#downloader'}>{hostedPreview ? 'Get the app' : 'Try it now'} <ArrowRight size={17} /></a></div>
-          <div className="brand-cards">{platforms.filter(p => p.key !== 'auto').map(p => <button key={p.key} type="button" className="brand-card" onClick={() => { if (hostedPreview) { window.location.hash = '#downloads'; return; } setPlatform(p.key); formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}><span className="brand-card-icon" style={{ '--platform-color': p.tone }}><PlatformIcon name={p.key} size={23} /></span><strong>{p.label}</strong><span>{hostedPreview ? 'Get app' : 'Explore'} <ArrowRight size={14} /></span></button>)}</div>
+          <div className="section-flex"><div><h2>One place for <span>every platform.</span></h2><p>Paste supported public links in the downloader above, with limited online processing and more formats from the desktop engine.</p></div><a className="text-link" href="#downloader">Try it now <ArrowRight size={17} /></a></div>
+          <div className="brand-cards">{platforms.filter(p => p.key !== 'auto').map(p => <button key={p.key} type="button" className="brand-card" onClick={() => { if (hostedPreview) { setPlatform(p.key); formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; } setPlatform(p.key); formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}><span className="brand-card-icon" style={{ '--platform-color': p.tone }}><PlatformIcon name={p.key} size={23} /></span><strong>{p.label}</strong><span>Try it <ArrowRight size={14} /></span></button>)}</div>
           <p className="brand-footnote"><Info size={14} /> Individual videos may fail because of privacy settings, authentication, DRM, or provider changes.</p>
         </section>
 
@@ -608,7 +629,7 @@ function App() {
           </div>
         </div></section>
 
-        <section className="features-section container"><div className="feature-banner"><div className="banner-copy"><div className="section-overline">BUILT FOR A SMOOTHER EXPERIENCE</div><h2>Everything you need.<br /><span>Nothing you don't.</span></h2><p>From quick clips to longer videos, our streamlined interface keeps you in control.</p><a href={hostedPreview ? '#downloads' : '#downloader'} className="banner-link">{hostedPreview ? 'Choose a download' : 'Get started for free'} <ArrowRight size={17} /></a></div><div className="banner-features"><div><span><MonitorDown size={23}/></span><strong>Multiple resolutions</strong><p>Choose among qualities reported by the source.</p></div><div><span><CloudDownload size={23}/></span><strong>Large-file delivery</strong><p>Disk-backed downloads instead of loading whole files in memory.</p></div><div><span><ShieldCheck size={23}/></span><strong>Private by design</strong><p>Temporary files are automatically cleaned up.</p></div></div></div></section>
+        <section className="features-section container"><div className="feature-banner"><div className="banner-copy"><div className="section-overline">BUILT FOR A SMOOTHER EXPERIENCE</div><h2>Everything you need.<br /><span>Nothing you don't.</span></h2><p>From quick clips to longer videos, our streamlined interface keeps you in control.</p><a href="#downloader" className="banner-link">Get started for free <ArrowRight size={17} /></a></div><div className="banner-features"><div><span><MonitorDown size={23}/></span><strong>Multiple resolutions</strong><p>Choose among qualities reported by the source.</p></div><div><span><CloudDownload size={23}/></span><strong>Large-file delivery</strong><p>Disk-backed downloads instead of loading whole files in memory.</p></div><div><span><ShieldCheck size={23}/></span><strong>Private by design</strong><p>Temporary files are automatically cleaned up.</p></div></div></div></section>
 
         <section className="faq-section container" id="questions"><div className="section-overline">GOOD TO KNOW</div><h2>Frequently asked <span>questions.</span></h2><div className="faq-grid"><details><summary>Is Clipora free to use?<ChevronDown size={19} /></summary><p>The project is self-hosted and has no built-in payments. Your server, bandwidth, and storage may have costs.</p></details><details><summary>Can I download in 1080p, 4K or 5K?<ChevronDown size={19} /></summary><p>Only when the source offers that quality and the extractor can access it. Clipora displays the resolutions reported by the video provider; selecting a resolution sets an upper limit.</p></details><details><summary>Can I download private videos?<ChevronDown size={19} /></summary><p>No. This implementation is meant for publicly accessible content you have permission to download. It does not bypass logins, DRM, or access controls.</p></details><details><summary>Why did a download fail?<ChevronDown size={19} /></summary><p>Platforms frequently change their video delivery systems. Some links require authentication, contain DRM, or are not supported by the current extractor version.</p></details></div></section>
       </main>

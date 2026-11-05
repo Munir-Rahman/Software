@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Clipora — One Click Media Downloader",
+  "version": "4.0.0",
+  "description": "Download supported videos, MP3 audio and images directly from Chrome. Connects to your local Clipora desktop engine.",
+  "permissions": ["activeTab", "scripting", "downloads", "storage", "contextMenus"],
+  "host_permissions": ["http://127.0.0.1:3001/*"],
+  "action": {
+    "default_title": "Clipora — download media",
+    "default_popup": "popup.html"
+  },
+  "background": { "service_worker": "service-worker.js" }
+}

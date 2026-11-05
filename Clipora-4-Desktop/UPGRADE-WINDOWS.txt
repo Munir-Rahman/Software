@@ -1,0 +1,16 @@
+Clipora Desktop v4 - upgrading from v3
+
+1. Extract Clipora-4-Desktop.zip to D:\Github\1.Downloader\Clipora-4-Desktop.
+2. Close the old Clipora terminal or the ports may already be taken.
+3. Run SETUP-CLIPORA.cmd once, then START-CLIPORA.cmd.
+4. Open chrome://extensions, disable/remove the old Clipora v3 extension.
+5. Click Load unpacked and choose Clipora-4-Desktop\browser-extension.
+6. Click the Clipora extension icon and enter the 8-digit code shown in the server terminal.
+7. Paste a URL in the extension, choose MP4/MP3 and quality, and click Download to Chrome.
+8. The Chrome Downloads panel (Ctrl+J) shows the file. The extension shows server processing progress.
+
+This extension needs the local server to process social video; direct HTTPS media can be saved by Chrome.
+Chrome download may show zero/unknown byte progress until video merge/conversion is finished.
+You do not need to upload or run any server on Vercel for local desktop use.
+
+Detailed help: README.md

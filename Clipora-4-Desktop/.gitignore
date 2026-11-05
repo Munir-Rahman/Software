@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+server/downloads/
+.DS_Store
+*.log
+
+tools/
+server/runtime/
+.env.*
+!.env.example
+!.env.production
